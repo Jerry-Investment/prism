@@ -110,8 +110,61 @@ CREATE TABLE IF NOT EXISTS backfill_jobs (
 );
 
 -- ─────────────────────────────────────────────────────────────────────────────
+-- Korean stocks — OHLCV candles (Phase 2: KIS)
+-- ticker: 6-digit KRX code (e.g. "005930" = Samsung Electronics)
+-- market_div: "J" = KOSPI, "Q" = KOSDAQ
+-- interval: "1","5","15","30","60","D"
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS stock_candles (
+    time        TIMESTAMPTZ     NOT NULL,
+    ticker      TEXT            NOT NULL,
+    market_div  TEXT            NOT NULL,
+    interval    TEXT            NOT NULL,
+    open        NUMERIC(20, 0)  NOT NULL,   -- KRW (no fractional won)
+    high        NUMERIC(20, 0)  NOT NULL,
+    low         NUMERIC(20, 0)  NOT NULL,
+    close       NUMERIC(20, 0)  NOT NULL,
+    volume      BIGINT          NOT NULL,
+    trade_value NUMERIC(32, 0)  NOT NULL DEFAULT 0,  -- 거래대금 (KRW)
+    PRIMARY KEY (time, ticker, interval)
+);
+
+SELECT create_hypertable('stock_candles', 'time', if_not_exists => TRUE);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- KOSPI 200 constituents
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS kospi200_constituents (
+    ticker      TEXT    NOT NULL,
+    name        TEXT    NOT NULL,
+    sector      TEXT    NOT NULL DEFAULT '',
+    market_div  TEXT    NOT NULL DEFAULT 'J',
+    added_date  DATE    NOT NULL,
+    removed_date DATE,
+    PRIMARY KEY (ticker, added_date)
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- Backfill tracking — Korean stocks
+-- ─────────────────────────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS stock_backfill_jobs (
+    id          BIGSERIAL       PRIMARY KEY,
+    ticker      TEXT            NOT NULL,
+    interval    TEXT            NOT NULL,
+    from_time   TIMESTAMPTZ     NOT NULL,
+    to_time     TIMESTAMPTZ     NOT NULL,
+    status      TEXT            NOT NULL DEFAULT 'pending',
+    rows_written INTEGER,
+    error       TEXT,
+    created_at  TIMESTAMPTZ     DEFAULT NOW(),
+    updated_at  TIMESTAMPTZ     DEFAULT NOW()
+);
+
+-- ─────────────────────────────────────────────────────────────────────────────
 -- Indexes
 -- ─────────────────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_candles_market_interval ON candles (market, interval, time DESC);
 CREATE INDEX IF NOT EXISTS idx_trades_market ON trades (market, time DESC);
 CREATE INDEX IF NOT EXISTS idx_orderbook_market ON orderbook_snapshots (market, time DESC);
+CREATE INDEX IF NOT EXISTS idx_stock_candles_ticker_interval ON stock_candles (ticker, interval, time DESC);
+CREATE INDEX IF NOT EXISTS idx_kospi200_ticker ON kospi200_constituents (ticker);
