@@ -1,0 +1,161 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRISM — All public endpoints exposed exclusively via Tailscale.
+#
+# Tailscale sidecar pattern:
+#   backend, frontend, and flower share the Tailscale container's network
+#   namespace (network_mode: service:tailscale).  This means:
+#     - All three services listen on the Tailscale IP — not on the host.
+#     - No host port mappings for those services.
+#     - Access them at:
+#         https://prism-backend.<tailnet>.ts.net  (port 8000)
+#         https://prism-frontend.<tailnet>.ts.net (port 3000)
+#         https://prism-flower.<tailnet>.ts.net   (port 5555)
+#
+# Prerequisites:
+#   1. Set TS_AUTHKEY in .env (generate at https://login.tailscale.com/admin/settings/keys)
+#   2. Optionally set TS_HOSTNAME (default: prism)
+#   3. Host must have /dev/net/tun available (Linux).
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Tailscale sidecar ──────────────────────────────────────────────────────
+  tailscale:
+    image: tailscale/tailscale:latest
+    container_name: prism_tailscale
+    restart: unless-stopped
+    hostname: ${TS_HOSTNAME:-prism}
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "false"
+      TS_ACCEPT_DNS: "true"
+      # Expose all three app ports through this single Tailscale node
+      TS_EXTRA_ARGS: "--advertise-tags=tag:prism"
+    volumes:
+      - tailscale_state:/var/lib/tailscale
+      - /dev/net/tun:/dev/net/tun
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    network_mode: host   # needs host networking to manage the tun interface
+
+  # ─── PostgreSQL + TimescaleDB ───────────────────────────────────────────────
+  # Internal only — no Tailscale exposure needed.
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: prism_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: prism
+      POSTGRES_USER: prism
+      POSTGRES_PASSWORD: prism
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prism"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis ──────────────────────────────────────────────────────────────────
+  # Internal only.
+  redis:
+    image: redis:7-alpine
+    container_name: prism_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    command: redis-server --save 60 1 --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Backend (FastAPI) — Tailscale network ──────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: prism_backend
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prism:prism@db:5432/prism
+      DATABASE_SYNC_URL: postgresql://prism:prism@db:5432/prism
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    # No host port mapping — accessible only via Tailscale IP on port 8000
+    network_mode: host
+    depends_on:
+      tailscale:
+        condition: service_started
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # ─── Celery Worker (internal) ───────────────────────────────────────────────
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: prism_worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prism:prism@db:5432/prism
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: celery -A app.tasks.backtest_tasks.celery_app worker --loglevel=info --concurrency=4
+
+  # ─── Flower — Tailscale network ─────────────────────────────────────────────
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: prism_flower
+    environment:
+      CELERY_BROKER_URL: redis://redis:6379/0
+    # No host port mapping — accessible only via Tailscale IP on port 5555
+    network_mode: host
+    depends_on:
+      tailscale:
+        condition: service_started
+      redis:
+        condition: service_started
+    command: celery -A app.tasks.backtest_tasks.celery_app flower --port=5555
+
+  # ─── Frontend (Next.js) — Tailscale network ─────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: prism_frontend
+    environment:
+      NEXT_PUBLIC_API_URL: ""
+    # No host port mapping — accessible only via Tailscale IP on port 3000
+    network_mode: host
+    depends_on:
+      tailscale:
+        condition: service_started
+      backend:
+        condition: service_started
+
+volumes:
+  db_data:
+  redis_data:
+  tailscale_state:
