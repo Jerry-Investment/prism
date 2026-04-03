@@ -8,6 +8,22 @@ export default function Home() {
         <p className="text-slate-400 text-lg">Portfolio Research &amp; Investment Simulation Machine</p>
       </div>
 
+      {/* Auth CTA */}
+      <div className="flex gap-4 mb-12">
+        <Link
+          href="/login"
+          className="px-6 py-3 bg-slate-800 border border-slate-600 hover:border-green-500 text-slate-100 font-semibold rounded-lg transition-colors"
+        >
+          로그인
+        </Link>
+        <Link
+          href="/signup"
+          className="px-6 py-3 bg-green-600 hover:bg-green-500 text-white font-semibold rounded-lg transition-colors"
+        >
+          무료로 시작하기
+        </Link>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 w-full max-w-4xl">
         <Link href="/dashboard" className="group block p-6 bg-slate-800 rounded-xl border border-slate-700 hover:border-green-500 transition-colors">
           <h2 className="text-xl font-semibold mb-2 group-hover:text-green-400">Dashboard</h2>

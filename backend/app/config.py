@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     # CORS
     CORS_ORIGINS: list[str] = ["http://localhost:3000"]
 
+    # JWT / Auth
+    SECRET_KEY: str = "change-me-in-production-use-openssl-rand-hex-32"
+    ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+
     # Market APIs
     UPBIT_ACCESS_KEY: str = ""
     UPBIT_SECRET_KEY: str = ""

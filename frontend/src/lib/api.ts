@@ -1,9 +1,35 @@
+import axios from "axios";
+
+const api = axios.create({
+  baseURL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
+  headers: { "Content-Type": "application/json" },
+});
+
+// Attach Bearer token from localStorage on every request
+api.interceptors.request.use((config) => {
+  if (typeof window !== "undefined") {
+    const token = localStorage.getItem("prism_token");
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+  }
+  return config;
+});
+
+export default api;
+
+// Legacy fetch-based helpers kept for backward compatibility
 const BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = typeof window !== "undefined" ? localStorage.getItem("prism_token") : null;
   const res = await fetch(`${BASE}${path}`, {
     ...init,
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
   if (!res.ok) {
     const err = await res.text();
@@ -12,7 +38,7 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return res.json();
 }
 
-export const api = {
+export const apiHelpers = {
   strategies: {
     list: () => apiFetch<import("@/types").Strategy[]>("/api/v1/strategies/"),
     create: (data: Omit<import("@/types").Strategy, "id">) =>
