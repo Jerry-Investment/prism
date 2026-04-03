@@ -23,35 +23,62 @@ celery_app.conf.update(
 
 @celery_app.task(bind=True, name="backtest.run")
 def run_backtest_task(self, request: dict):
-    """
-    Async Celery task: fetch data, run backtest, return result dict.
-    Full implementation in Phase 2 — currently returns a stub.
-    """
+    """Async Celery task: fetch data, run backtest, return enriched result dict."""
     import asyncio
     from app.core.data_layer import fetch_ohlcv
+    from app.core.backtest_engine import BacktestEngine
+    from app.core.strategy import load_strategy
 
     self.update_state(state="STARTED", meta={"progress": 0})
 
     symbol = request.get("symbol", "KRW-BTC")
     interval = request.get("interval", "1d")
-    limit = 200
+    strategy_id = request.get("strategy_id", "")
+    initial_capital = float(request.get("initial_capital", 10_000_000))
+    params = request.get("params", {})
 
     try:
-        # Fetch market data
+        # 1. Fetch market data
         bars = asyncio.get_event_loop().run_until_complete(
-            fetch_ohlcv(symbol=symbol, interval=interval, limit=limit)
+            fetch_ohlcv(symbol=symbol, interval=interval, limit=365)
         )
-        self.update_state(state="PROGRESS", meta={"progress": 50, "bars_fetched": len(bars)})
+        self.update_state(state="PROGRESS", meta={"progress": 30, "bars_fetched": len(bars)})
 
-        # Placeholder result — ARIA will wire in real strategy logic
-        result = {
-            "strategy_id": request.get("strategy_id"),
-            "symbol": symbol,
-            "bars": len(bars),
-            "status": "completed (stub)",
+        # 2. Load strategy
+        strategy = load_strategy(strategy_id, params)
+
+        # 3. Run backtest engine
+        engine = BacktestEngine(initial_capital=initial_capital)
+        result = engine.run(strategy=strategy, ohlcv=bars, symbol=symbol)
+        self.update_state(state="PROGRESS", meta={"progress": 80})
+
+        # 4. Serialize trades for JSON transport
+        trades_data = [
+            {
+                "timestamp": t.timestamp,
+                "symbol": t.symbol,
+                "action": t.action,
+                "price": t.price,
+                "size": t.size,
+                "commission": t.commission,
+                "slippage": t.slippage,
+            }
+            for t in result.trades
+        ]
+
+        return {
+            "strategy_name": result.strategy_name,
+            "strategy_id": strategy_id,
+            "symbol": result.symbol,
+            "start": result.start,
+            "end": result.end,
+            "initial_capital": result.initial_capital,
+            "final_equity": result.final_equity,
+            "total_return": result.total_return,
+            "total_trades": result.total_trades,
+            "trades": trades_data,
+            "equity_curve": result.equity_curve,
         }
-
-        return result
 
     except Exception as exc:
         self.update_state(state="FAILURE", meta={"error": str(exc)})
