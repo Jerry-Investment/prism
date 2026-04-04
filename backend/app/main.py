@@ -33,7 +33,7 @@ app.include_router(v1_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup():
     # Import all models so they are registered with Base.metadata
-    from app.models import User  # noqa: F401
+    from app.models import User, PaperTradingSession, PaperTradingPosition, PaperTradingOrder, PaperTradingAlert  # noqa: F401
     from app.db.session import Base, engine
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

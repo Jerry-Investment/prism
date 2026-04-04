@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { useAuthStore } from "@/lib/authStore";
 import { getMe } from "@/lib/auth";
 import AuthGuard from "@/components/AuthGuard";
+import Link from "next/link";
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
@@ -56,7 +57,24 @@ export default function DashboardPage() {
           ))}
         </div>
 
-        <p className="text-slate-500 text-sm">Phase 2에서 실시간 데이터 연동 예정</p>
+        {/* Navigation shortcuts */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { label: "백테스트", href: "/backtest", desc: "전략 시뮬레이션" },
+            { label: "전략 관리", href: "/strategies", desc: "전략 등록/수정" },
+            { label: "모의 투자", href: "/paper-trading", desc: "실시간 가상 매매" },
+            { label: "분석", href: "/analytics", desc: "성과 리포트" },
+          ].map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg p-4 transition-colors"
+            >
+              <p className="font-semibold">{item.label}</p>
+              <p className="text-slate-400 text-sm mt-1">{item.desc}</p>
+            </Link>
+          ))}
+        </div>
       </div>
     </AuthGuard>
   );

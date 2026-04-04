@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import analytics, auth, backtest, comparison, strategy, market_data
+from app.api.v1 import analytics, auth, backtest, comparison, strategy, market_data, paper_trading
 
 router = APIRouter()
 router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -9,3 +9,4 @@ router.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 router.include_router(comparison.router, prefix="/comparison", tags=["comparison"])
 router.include_router(strategy.router, prefix="/strategies", tags=["strategies"])
 router.include_router(market_data.router, prefix="/market-data", tags=["market-data"])
+router.include_router(paper_trading.router, prefix="/paper-trading", tags=["paper-trading"])
