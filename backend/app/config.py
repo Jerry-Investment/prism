@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     KIS_APP_KEY: str = ""
     KIS_APP_SECRET: str = ""
 
+    # Monitoring
+    SENTRY_DSN: str = ""
+
     class Config:
         env_file = ".env"
 
