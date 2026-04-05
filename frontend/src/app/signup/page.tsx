@@ -25,7 +25,7 @@ export default function SignupPage() {
       localStorage.setItem("prism_token", access_token);
       const user = await getMe();
       setAuth(user, access_token);
-      router.push("/dashboard");
+      router.push("/onboarding");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Signup failed";
       setError(msg);
