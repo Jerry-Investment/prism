@@ -1,0 +1,164 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRISM — Production deployment (AWS EC2 + Traefik + Let's Encrypt)
+#
+# Required env vars (set in .env on the server):
+#   DOMAIN          e.g. prism.example.com
+#   ACME_EMAIL      e.g. admin@example.com
+#   POSTGRES_PASSWORD
+#   REDIS_PASSWORD
+#   SECRET_KEY
+#   IMAGE_TAG       set by deploy workflow (defaults to 'production')
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml up -d
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Traefik reverse proxy + SSL ──────────────────────────────────────────
+  traefik:
+    image: traefik:v3.0
+    container_name: prism_traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--providers.docker.network=prism_web"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - web
+
+  # ─── PostgreSQL + TimescaleDB ──────────────────────────────────────────────
+  db:
+    image: timescale/timescaledb:latest-pg16
+    container_name: prism_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: prism
+      POSTGRES_USER: prism
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+      - ./db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prism"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ─── Redis ────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: prism_redis
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - internal
+
+  # ─── Backend (FastAPI) ────────────────────────────────────────────────────
+  backend:
+    image: ghcr.io/paktan/prism-backend:${IMAGE_TAG:-production}
+    container_name: prism_backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prism:${POSTGRES_PASSWORD}@db:5432/prism
+      DATABASE_SYNC_URL: postgresql://prism:${POSTGRES_PASSWORD}@db:5432/prism
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+      CORS_ORIGINS: '["https://${DOMAIN}"]'
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`${DOMAIN}`) && PathPrefix(`/api`, `/docs`, `/openapi.json`, `/ws`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      - "traefik.http.routers.backend.priority=10"
+    networks:
+      - web
+      - internal
+
+  # ─── Celery Worker ────────────────────────────────────────────────────────
+  worker:
+    image: ghcr.io/paktan/prism-backend:${IMAGE_TAG:-production}
+    container_name: prism_worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://prism:${POSTGRES_PASSWORD}@db:5432/prism
+      DATABASE_SYNC_URL: postgresql://prism:${POSTGRES_PASSWORD}@db:5432/prism
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_BROKER_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD}@redis:6379/1
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    command: >
+      celery -A app.tasks.backtest_tasks.celery_app worker
+      --loglevel=info
+      --concurrency=${CELERY_CONCURRENCY:-4}
+      --max-tasks-per-child=100
+    networks:
+      - internal
+
+  # ─── Frontend (Next.js) ───────────────────────────────────────────────────
+  frontend:
+    image: ghcr.io/paktan/prism-frontend:${IMAGE_TAG:-production}
+    container_name: prism_frontend
+    restart: unless-stopped
+    environment:
+      NEXT_PUBLIC_API_URL: https://${DOMAIN}
+    depends_on:
+      - backend
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`${DOMAIN}`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      - "traefik.http.routers.frontend.priority=1"
+    networks:
+      - web
+
+volumes:
+  db_data:
+  redis_data:
+  letsencrypt:
+
+networks:
+  web:
+    name: prism_web
+  internal:
+    name: prism_internal
