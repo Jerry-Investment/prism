@@ -1,4 +1,8 @@
 from fastapi import FastAPI, Request
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.celery import CeleryIntegration
+
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -6,6 +10,16 @@ from slowapi.util import get_remote_address
 
 from app.config import settings
 from app.api.v1 import router as v1_router
+
+
+# Initialize Sentry (no-op when SENTRY_DSN is empty)
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[FastApiIntegration(), CeleryIntegration()],
+        traces_sample_rate=0.2,
+        environment="production" if not settings.DEBUG else "development",
+    )
 
 limiter = Limiter(key_func=get_remote_address)
 
