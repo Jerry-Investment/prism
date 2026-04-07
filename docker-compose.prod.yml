@@ -81,7 +81,7 @@ services:
 
   # ─── Backend (FastAPI) ────────────────────────────────────────────────────
   backend:
-    image: ghcr.io/paktan/prism-backend:${IMAGE_TAG:-production}
+    image: ghcr.io/jerry-investment/prism-backend:${IMAGE_TAG:-production}
     container_name: prism_backend
     restart: unless-stopped
     env_file: .env
@@ -110,7 +110,7 @@ services:
 
   # ─── Celery Worker ────────────────────────────────────────────────────────
   worker:
-    image: ghcr.io/paktan/prism-backend:${IMAGE_TAG:-production}
+    image: ghcr.io/jerry-investment/prism-backend:${IMAGE_TAG:-production}
     container_name: prism_worker
     restart: unless-stopped
     env_file: .env
@@ -135,7 +135,7 @@ services:
 
   # ─── Frontend (Next.js) ───────────────────────────────────────────────────
   frontend:
-    image: ghcr.io/paktan/prism-frontend:${IMAGE_TAG:-production}
+    image: ghcr.io/jerry-investment/prism-frontend:${IMAGE_TAG:-production}
     container_name: prism_frontend
     restart: unless-stopped
     environment:

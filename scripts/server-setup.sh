@@ -8,7 +8,7 @@
 #   - This script should be run as: bash scripts/server-setup.sh
 set -euo pipefail
 
-REPO_URL="https://github.com/paktan/prism.git"
+REPO_URL="https://github.com/Jerry-Investment/prism.git"
 APP_DIR="/opt/prism"
 GH_TOKEN="${GH_TOKEN:-}"   # set in env if repo is private
 
@@ -48,7 +48,7 @@ else
     sudo mkdir -p "$APP_DIR"
     sudo chown ubuntu:ubuntu "$APP_DIR"
     if [[ -n "$GH_TOKEN" ]]; then
-        git clone "https://x-access-token:${GH_TOKEN}@github.com/paktan/prism.git" "$APP_DIR"
+        git clone "https://x-access-token:${GH_TOKEN}@github.com/Jerry-Investment/prism.git" "$APP_DIR"
     else
         git clone "$REPO_URL" "$APP_DIR"
     fi

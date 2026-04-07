@@ -16,7 +16,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_PREFIX: ghcr.io/paktan/prism
+  IMAGE_PREFIX: ghcr.io/jerry-investment/prism
 
 jobs:
   # ─── Build & push Docker images ─────────────────────────────────────────
